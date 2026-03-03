@@ -538,7 +538,7 @@ export default function Home() {
               ...(selectedDrink === "Strawberry Matcha"
                 ? {
                     backgroundImage:
-                      "linear-gradient(to top, #F8A5C2 0%, #F8A5C2 50%, #7FB77E 50%, #7FB77E 100%)",
+                      "linear-gradient(to top, #F8A5C2 0%, #F8A5C2 30%, #E9D2BE 50%, #C1D9A8 70%, #7FB77E 100%)",
                   }
                 : {
                     backgroundImage: `linear-gradient(to top, ${
@@ -558,53 +558,6 @@ export default function Home() {
             {/* Surface foam interface — physics-level integration */}
             <div style={styles.surfaceFoamInterface} aria-hidden />
           </div>
-
-          {isRunning && selectedDrink === "Latte" && mode === "focus" && (
-            <>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    ...styles.steam,
-                    left: `${40 + i * 10}%`,
-                    animationDelay: `${i * 0.4}s`,
-                  }}
-                />
-              ))}
-            </>
-          )}
-
-          {isRunning && selectedDrink === "Lemonade" && mode === "focus" && (
-            <>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    ...styles.iceCube,
-                    left: `${30 + i * 15}%`,
-                    animationDelay: `${i * 0.3}s`,
-                  }}
-                />
-              ))}
-            </>
-          )}
-
-          {isRunning &&
-            selectedDrink === "Strawberry Matcha" &&
-            mode === "focus" && (
-              <>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      ...styles.sparkle,
-                      left: `${20 + (i * 7) % 60}%`,
-                      animationDelay: `${(i * 0.3) % 3}s`,
-                    }}
-                  />
-                ))}
-              </>
-            )}
 
           {/* Earned task ice cubes — positioned inside liquid, drop animation on add */}
           {mode === "focus" &&
