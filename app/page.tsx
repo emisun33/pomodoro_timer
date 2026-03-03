@@ -313,7 +313,7 @@ export default function Home() {
       {showIntro && (
         <div style={styles.introOverlay} className="introOverlay">
           <div style={{ ...styles.introCard, ...(isStardew ? styles.stardewIntroCard : {}) }} className="introCard">
-            <h2 style={{ ...styles.introTitle, ...(isStardew ? styles.stardewIntroTitle : {}) }}>Welcome to Café Focus☕</h2>
+            <h2 style={{ ...styles.introTitle, ...(isStardew ? styles.stardewIntroTitle : {}) }}>Welcome to Café Focus ☕</h2>
             <p style={{ ...styles.introSubtitle, ...(isStardew ? styles.stardewIntroSubtitle : {}) }}>
               What are we brewing today?
             </p>
