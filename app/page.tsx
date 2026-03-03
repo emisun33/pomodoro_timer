@@ -60,9 +60,9 @@ export default function Home() {
   const TOTAL_TIME = 1500; // 25 minutes
   const BUBBLE_TRIGGER = 900; // 15 minutes passed
 
-  const [timeLeft, setTimeLeft] = useState(300);
+  const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
   const [isRunning, setIsRunning] = useState(false);
-  const [mode, setMode] = useState<"focus" | "break" | "complete">("break");
+  const [mode, setMode] = useState<"focus" | "break" | "complete">("focus");
   const [selectedDrink, setSelectedDrink] =
     useState<"Latte" | "Lemonade" | "Strawberry Matcha">("Latte");
   const [selectedAnimal, setSelectedAnimal] =
