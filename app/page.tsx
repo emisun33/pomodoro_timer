@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 const THEMES = {
   pastelCafe: {
-    label: "Pastel Café",
+    label: "Pastel Cafe",
     focusBg: "linear-gradient(180deg, #FFF9F2 0%, #FFF1D6 100%)",
     breakBg: "linear-gradient(180deg, #E4FBFF 0%, #C2F3FF 100%)",
     primaryButtonBg: "#333333",
@@ -75,16 +75,79 @@ export default function Home() {
 
   const [smallTaskIce, setSmallTaskIce] = useState(0);
   const [mediumTaskIce, setMediumTaskIce] = useState(0);
+  const ICE_SLOT_COUNT = 10; // total cubes max = 6 small + 4 medium
+  const ICE_SLOT_PADDING_PX = 10;
+  const SMALL_CUBE_WIDTH_PX = 18;
+  const MEDIUM_CUBE_WIDTH_PX = 26;
 
+  const [availableIceSlots, setAvailableIceSlots] = useState<number[]>(() =>
+    Array.from({ length: ICE_SLOT_COUNT }, (_, i) => i)
+  );
+  const [smallTaskIceSlots, setSmallTaskIceSlots] = useState<number[]>([]);
+  const [mediumTaskIceSlots, setMediumTaskIceSlots] = useState<number[]>([]);
+
+  const [taskIceErrorKey, setTaskIceErrorKey] = useState(0);
+  const [showTaskIceError, setShowTaskIceError] = useState(false);
+  const [shakeTaskIceButtons, setShakeTaskIceButtons] = useState(false);
+  const taskIceErrorTimeoutRef = useRef<number | null>(null);
+  const shakeTimeoutRef = useRef<number | null>(null);
+
+  const triggerTaskIceError = () => {
+    if (taskIceErrorTimeoutRef.current !== null) {
+      window.clearTimeout(taskIceErrorTimeoutRef.current);
+    }
+    if (shakeTimeoutRef.current !== null) {
+      window.clearTimeout(shakeTimeoutRef.current);
+    }
+
+    setTaskIceErrorKey((k) => k + 1);
+    setShowTaskIceError(true);
+    setShakeTaskIceButtons(true);
+
+    shakeTimeoutRef.current = window.setTimeout(() => {
+      setShakeTaskIceButtons(false);
+    }, 380);
+
+    taskIceErrorTimeoutRef.current = window.setTimeout(() => {
+      setShowTaskIceError(false);
+    }, 2600);
+  };
+
+  const getIceSlotLeft = (slotIndex: number, cubeWidthPx: number) => {
+    const ratio = (slotIndex + 0.5) / ICE_SLOT_COUNT;
+    return `calc(${ICE_SLOT_PADDING_PX}px + ((100% - ${ICE_SLOT_PADDING_PX * 2}px) * ${ratio}) - ${cubeWidthPx / 2}px)`;
+  };
   const rainAudioRef = useRef<HTMLAudioElement | null>(null);
   const lofiAudioRef = useRef<HTMLAudioElement | null>(null);
   const windAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chimeAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const takeRandomIceSlot = (): number => {
+    const pool = availableIceSlots.length
+      ? availableIceSlots
+      : Array.from({ length: ICE_SLOT_COUNT }, (_, i) => i);
+    const idx = Math.floor(Math.random() * pool.length);
+    const slot = pool[idx];
+    setAvailableIceSlots((prev) => {
+      const base = prev.length ? prev : Array.from({ length: ICE_SLOT_COUNT }, (_, i) => i);
+      const i = base.indexOf(slot);
+      if (i === -1) return base;
+      return [...base.slice(0, i), ...base.slice(i + 1)];
+    });
+    return slot;
+  };
 
   const theme = THEMES[themeKey];
   const isStardew = themeKey === "stardewValley";
+  const headerLogoColor =
+    themeKey === "darkAcademia"
+      ? "#F5E6C8"
+      : themeKey === "stardewValley"
+      ? "#3A3528"
+      : "#6B4F3A";
 
   const motivationalMessages = [
-    "You’re literally building your dream life.",
+    "You’re building your dream life right now.",
     "That degree isn’t gonna earn itself.",
     "Stay delulu. It works.",
   ];
@@ -92,10 +155,12 @@ export default function Home() {
   const [messageIndex, setMessageIndex] = useState(0);
   const [showIntro, setShowIntro] = useState(true);
   const [celebrationKey, setCelebrationKey] = useState(0);
+  const [showBreakOverModal, setShowBreakOverModal] = useState(false);
+  const [showBackToWorkConfirm, setShowBackToWorkConfirm] = useState(false);
 
   const drinkColors: Record<string, string> = {
     Latte: "#C69C6D",
-    Lemonade: "#F9E076",
+    Lemonade: "#FFFDCC",
     "Strawberry Matcha": "#F8A5C2",
   };
 
@@ -114,8 +179,8 @@ export default function Home() {
           }
 
           if (mode === "break") {
-            setMode("focus");
-            return TOTAL_TIME;
+            setShowBreakOverModal(true);
+            return 0;
           }
 
           return 0;
@@ -126,6 +191,18 @@ export default function Home() {
 
     return () => clearInterval(interval);
   }, [isRunning, mode]);
+
+  // Auto-transition from break-over modal to focus: show 2s then switch and start
+  useEffect(() => {
+    if (!showBreakOverModal) return;
+    const timeoutId = window.setTimeout(() => {
+      setMode("focus");
+      setTimeLeft(TOTAL_TIME);
+      setIsRunning(true);
+      setShowBreakOverModal(false);
+    }, 2000);
+    return () => window.clearTimeout(timeoutId);
+  }, [showBreakOverModal]);
 
   // Load theme and ambience from localStorage on mount
   useEffect(() => {
@@ -173,9 +250,26 @@ export default function Home() {
     return () => clearInterval(id);
   }, [motivationalMessages.length]);
 
-  // Trigger single-burst celebration on completion
+  // Gentle transition from focus → break when a session completes
   useEffect(() => {
-    if (mode === "complete") setCelebrationKey((k) => k + 1);
+    if (mode !== "complete") return;
+
+    setCelebrationKey((k) => k + 1);
+
+    const chime = chimeAudioRef.current;
+    if (chime) {
+      chime.currentTime = 0;
+      chime.volume = 0.6;
+      void chime.play().catch(() => {});
+    }
+
+    const timeoutId = setTimeout(() => {
+      setMode("break");
+      setTimeLeft(300);
+      setIsRunning(true);
+    }, 1500);
+
+    return () => clearTimeout(timeoutId);
   }, [mode]);
 
   // Timer tick micro-interaction (only when running)
@@ -216,8 +310,6 @@ export default function Home() {
 
   const progress = (TOTAL_TIME - timeLeft) / TOTAL_TIME;
   const showBubbles = TOTAL_TIME - timeLeft >= BUBBLE_TRIGGER;
-  const lastFiveMinutes = timeLeft <= 300 && mode === "focus" && isRunning;
-
   const getBackground = () => {
     if (mode === "break") {
       if (themeKey === "darkAcademia") {
@@ -313,7 +405,7 @@ export default function Home() {
       {showIntro && (
         <div style={styles.introOverlay} className="introOverlay">
           <div style={{ ...styles.introCard, ...(isStardew ? styles.stardewIntroCard : {}) }} className="introCard">
-            <h2 style={{ ...styles.introTitle, ...(isStardew ? styles.stardewIntroTitle : {}) }}>Welcome to Café Focus ☕</h2>
+            <h2 style={{ ...styles.introTitle, ...(isStardew ? styles.stardewIntroTitle : {}) }}>Welcome to Cafe Focus ☕</h2>
             <p style={{ ...styles.introSubtitle, ...(isStardew ? styles.stardewIntroSubtitle : {}) }}>
               What are we brewing today?
             </p>
@@ -354,20 +446,34 @@ export default function Home() {
       <div style={{ ...styles.topRow, ...(isStardew ? styles.stardewTopRow : {}) }}>
         <div style={styles.headerCenter}>
           <div style={styles.brandBlock}>
-            <h1
-              style={{
-                ...styles.title,
-                ...(isStardew ? styles.stardewTitle : {}),
-                color:
-                  themeKey === "darkAcademia"
-                    ? "#FFFFFF"
-                    : themeKey === "stardewValley"
-                    ? "#3A3528"
-                    : "#222222",
-              }}
-            >
-              {mode === "break" ? "Break Time 🌿" : "Café Focus ☕"}
-            </h1>
+            <div style={styles.headerLogoBlock}>
+              <h1
+                style={{
+                  ...styles.scriptLogo,
+                  color: headerLogoColor,
+                }}
+              >
+                Cafe Focus
+              </h1>
+              {mode === "break" && (
+                <span
+                  style={{
+                    display: "block",
+                    marginTop: "12px",
+                    width: "100%",
+                    textAlign: "center",
+                    color: "#8A6A50",
+                    fontSize: "17px",
+                    fontWeight: 600,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    fontFamily: "var(--font-geist-sans), system-ui, sans-serif",
+                  }}
+                >
+                  Break time 🌿
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -414,7 +520,7 @@ export default function Home() {
             </button>
           ))}
         </div>
-        <div style={{ ...styles.breakSceneContainer, ...(isStardew ? styles.stardewBreakSceneContainer : {}) }} className="breakSceneFloat">
+        <div style={{ ...styles.breakSceneContainer, ...(isStardew ? styles.stardewBreakSceneContainer : {}) }}>
           <div style={styles.gardenSky}>
             {Array.from({ length: 3 }).map((_, i) => (
               <div
@@ -441,19 +547,31 @@ export default function Home() {
               />
             ))}
           </div>
-          <div style={styles.animalCenterLayer} className="animalCenterFadeIn">
-            <div
-              className={`selectedAnimalDisplay animalChilling${selectedAnimal}`}
-              style={styles.selectedAnimalDisplay}
-            >
+          <div style={styles.animalCenterLayer}>
+            <div style={styles.selectedAnimalDisplay}>
               {selectedAnimal === "Cat" && (
-                <img src="/animals/marie.png" alt="Marie from The Aristocats" style={styles.animalCartoon} />
+                <img
+                  src="/animals/sleepy-cat.gif"
+                  alt="Sleepy cat resting during break"
+                  style={styles.animalCartoon}
+                  loading="lazy"
+                />
               )}
               {selectedAnimal === "Dog" && (
-                <img src="/animals/pluto.png" alt="Pluto" style={styles.animalCartoon} />
+                <img
+                  src="/animals/sleepy-dog.gif"
+                  alt="Sleepy dog resting during break"
+                  style={styles.animalCartoon}
+                  loading="lazy"
+                />
               )}
               {selectedAnimal === "Rabbit" && (
-                <img src="/animals/thumper.png" alt="Thumper from Bambi" style={styles.animalCartoon} />
+                <img
+                  src="/animals/sleepy-bunny.gif"
+                  alt="Sleepy bunny resting during break"
+                  style={styles.animalCartoon}
+                  loading="lazy"
+                />
               )}
             </div>
           </div>
@@ -493,8 +611,18 @@ export default function Home() {
             <div style={styles.taskIceButtons}>
               <button
                 type="button"
-                onClick={() => setSmallTaskIce((n) => Math.min(n + 1, 6))}
-                className={isStardew ? "appButton stardewButton" : "appButton"}
+                onClick={() => {
+                  if (!isRunning) {
+                    triggerTaskIceError();
+                    return;
+                  }
+                  const next = Math.min(smallTaskIce + 1, 6);
+                  if (next === smallTaskIce) return;
+                  const slot = takeRandomIceSlot();
+                  setSmallTaskIce(next);
+                  setSmallTaskIceSlots((prev) => (prev.length >= next ? prev : [...prev, slot]));
+                }}
+                className={`${isStardew ? "appButton stardewButton" : "appButton"} ${shakeTaskIceButtons ? "taskIceShake" : ""}`}
                 style={{
                   ...styles.taskIceButton,
                   ...(themeKey === "darkAcademia" ? styles.taskIceButtonDark : {}),
@@ -504,8 +632,18 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setMediumTaskIce((n) => Math.min(n + 1, 4))}
-                className={isStardew ? "appButton stardewButton" : "appButton"}
+                onClick={() => {
+                  if (!isRunning) {
+                    triggerTaskIceError();
+                    return;
+                  }
+                  const next = Math.min(mediumTaskIce + 1, 4);
+                  if (next === mediumTaskIce) return;
+                  const slot = takeRandomIceSlot();
+                  setMediumTaskIce(next);
+                  setMediumTaskIceSlots((prev) => (prev.length >= next ? prev : [...prev, slot]));
+                }}
+                className={`${isStardew ? "appButton stardewButton" : "appButton"} ${shakeTaskIceButtons ? "taskIceShake" : ""}`}
                 style={{
                   ...styles.taskIceButton,
                   ...(themeKey === "darkAcademia" ? styles.taskIceButtonDark : {}),
@@ -514,6 +652,22 @@ export default function Home() {
                 ⭐ Medium task
               </button>
             </div>
+            {showTaskIceError && (
+              <div
+                key={taskIceErrorKey}
+                className="taskIceError"
+                style={{
+                  ...styles.taskIceError,
+                  ...(themeKey === "darkAcademia"
+                    ? { background: "rgba(58, 50, 44, 0.72)", color: "#F5E6C8" }
+                    : {}),
+                }}
+                role="status"
+                aria-live="polite"
+              >
+                Start the Pomodoro timer to add ice cubes.
+              </div>
+            )}
           </div>
         )}
         <div
@@ -559,20 +713,24 @@ export default function Home() {
             <div style={styles.surfaceFoamInterface} aria-hidden />
           </div>
 
-          {/* Earned task ice cubes — positioned inside liquid, drop animation on add */}
+          {/* Earned task ice cubes — randomized horizontal position per completion, inside liquid */}
           {mode === "focus" &&
             Array.from({ length: smallTaskIce }).map((_, i) => {
               const liquidHeightPct = progress * 100;
               const maxBottom = Math.max(8, liquidHeightPct - 12);
               const minBottom = 6;
               const bottomPct = minBottom + (i * 11) % Math.max(10, maxBottom - minBottom);
+              const slot = smallTaskIceSlots[i] ?? i % ICE_SLOT_COUNT;
               return (
                 <div
                   key={`small-${i}`}
                   className="iceCubeDrop"
                   style={{
                     ...styles.iceCube,
-                    left: `${18 + (i * 18) % 64}%`,
+                    ...(themeKey !== "darkAcademia"
+                      ? { border: "1px solid rgba(150,150,150,0.38)" }
+                      : {}),
+                    left: getIceSlotLeft(slot, SMALL_CUBE_WIDTH_PX),
                     bottom: `${bottomPct}%`,
                     animationDelay: `${(i * 0.2) % 2}s`,
                   }}
@@ -585,41 +743,27 @@ export default function Home() {
               const maxBottom = Math.max(8, liquidHeightPct - 14);
               const minBottom = 6;
               const bottomPct = minBottom + (i * 12) % Math.max(10, maxBottom - minBottom);
+              const slot = mediumTaskIceSlots[i] ?? (i + 2) % ICE_SLOT_COUNT;
               return (
                 <div
                   key={`medium-${i}`}
                   className="iceCubeDrop"
                   style={{
                     ...styles.iceCubeStar,
-                    left: `${24 + (i * 22) % 52}%`,
+                    ...(themeKey !== "darkAcademia"
+                      ? {
+                          boxShadow:
+                            "0 0 0 1.5px rgba(130,130,130,0.7), 0 0 0 1px rgba(255,255,255,0.5), inset 2px 2px 4px rgba(255,255,255,0.6), inset -1px -1px 2px rgba(180,210,230,0.3)",
+                          filter: "drop-shadow(0 0 1px rgba(100,100,100,0.9))",
+                        }
+                      : {}),
+                    left: getIceSlotLeft(slot, MEDIUM_CUBE_WIDTH_PX),
                     bottom: `${bottomPct}%`,
                     animationDelay: `${(i * 0.25) % 2}s`,
                   }}
                 />
               );
             })}
-
-          {/* Last 5 min drink toppers — realistic foam/light material rendering */}
-          {lastFiveMinutes && selectedDrink === "Latte" && (
-            <div style={styles.latteArtContainer} className="drinkTopperFadeIn drinkTopperCentered drinkTopperBreathing">
-              <div style={styles.latteFoamSurface} aria-hidden>
-                <div style={styles.latteFoamReflectionDot} aria-hidden />
-      </div>
-            </div>
-          )}
-          {lastFiveMinutes && selectedDrink === "Lemonade" && (
-            <div style={styles.lemonadeTopperContainer} className="drinkTopperFadeIn drinkTopperBreathing">
-              <div style={styles.citrusReflectionZone} aria-hidden />
-              <div style={styles.citrusSpecularDot} aria-hidden />
-            </div>
-          )}
-          {lastFiveMinutes && selectedDrink === "Strawberry Matcha" && (
-            <div style={styles.strawberryTopperContainer} className="drinkTopperFadeIn drinkTopperBreathing">
-              <div style={{ ...styles.berryShadowBlob, left: "24%", top: "20%", transform: "rotate(-14deg)" }} aria-hidden />
-              <div style={{ ...styles.berryShadowBlob, left: "50%", top: "18%", transform: "rotate(12deg)" }} aria-hidden />
-              <div style={{ ...styles.berryShadowBlob, left: "72%", top: "22%", transform: "rotate(-6deg)" }} aria-hidden />
-            </div>
-          )}
 
           {/* BUBBLES */}
           {showBubbles &&
@@ -643,8 +787,12 @@ export default function Home() {
         style={{
           ...styles.timerHero,
           ...(themeKey === "darkAcademia"
-            ? { background: "rgba(0,0,0,0.2)", boxShadow: "0 4px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1)" }
+            ? {
+                background: "rgba(64, 58, 52, 0.92)",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.08)",
+              }
             : {}),
+          opacity: mode === "complete" ? 0 : 1,
         }}
       >
         <p
@@ -681,17 +829,13 @@ export default function Home() {
       <div style={styles.controlRow}>
         {mode === "break" && (
           <button
-            onClick={() => {
-              setMode("focus");
-              setTimeLeft(TOTAL_TIME);
-              setIsRunning(false);
-            }}
-            className={isStardew ? "appButton stardewButton stardewPrimary" : "appButton"}
+            onClick={() => setShowBackToWorkConfirm(true)}
+            className={isStardew ? "appButton stardewButton stardewSecondary" : "appButton"}
             style={{
-              ...styles.primaryButton,
-              ...(isStardew ? styles.stardewPrimaryButton : {}),
-              backgroundColor: theme.primaryButtonBg,
-              color: theme.primaryButtonColor,
+              ...styles.secondaryButton,
+              ...(isStardew ? styles.stardewSecondaryButton : {}),
+              backgroundColor: theme.secondaryButtonBg,
+              color: theme.secondaryButtonColor,
             }}
           >
             Back to Work
@@ -699,13 +843,26 @@ export default function Home() {
         )}
         <button
           onClick={() => setIsRunning((prev) => !prev)}
-          className={isStardew ? "appButton stardewButton stardewPrimary" : "appButton"}
-          style={{
-            ...styles.primaryButton,
-            ...(isStardew ? styles.stardewPrimaryButton : {}),
-            backgroundColor: theme.primaryButtonBg,
-            color: theme.primaryButtonColor,
-          }}
+          className={
+            mode === "break"
+              ? (isStardew ? "appButton stardewButton stardewSecondary" : "appButton")
+              : (isStardew ? "appButton stardewButton stardewPrimary" : "appButton")
+          }
+          style={
+            mode === "break"
+              ? {
+                  ...styles.secondaryButton,
+                  ...(isStardew ? styles.stardewSecondaryButton : {}),
+                  backgroundColor: theme.secondaryButtonBg,
+                  color: theme.secondaryButtonColor,
+                }
+              : {
+                  ...styles.primaryButton,
+                  ...(isStardew ? styles.stardewPrimaryButton : {}),
+                  backgroundColor: theme.primaryButtonBg,
+                  color: theme.primaryButtonColor,
+                }
+          }
         >
           {isRunning
             ? "Pause"
@@ -718,6 +875,21 @@ export default function Home() {
           onClick={() => {
             setIsRunning(false);
             setTimeLeft(mode === "break" ? 300 : TOTAL_TIME);
+            setSmallTaskIce(0);
+            setMediumTaskIce(0);
+            setSmallTaskIceSlots([]);
+            setMediumTaskIceSlots([]);
+            setAvailableIceSlots(Array.from({ length: ICE_SLOT_COUNT }, (_, i) => i));
+            setShowTaskIceError(false);
+            setShakeTaskIceButtons(false);
+            if (taskIceErrorTimeoutRef.current !== null) {
+              window.clearTimeout(taskIceErrorTimeoutRef.current);
+              taskIceErrorTimeoutRef.current = null;
+            }
+            if (shakeTimeoutRef.current !== null) {
+              window.clearTimeout(shakeTimeoutRef.current);
+              shakeTimeoutRef.current = null;
+            }
           }}
           className={isStardew ? "appButton stardewButton stardewSecondary" : "appButton"}
           style={{
@@ -730,6 +902,67 @@ export default function Home() {
           Reset
         </button>
       </div>
+
+      {showBreakOverModal && (
+        <div style={styles.breakOverModalOverlay} aria-modal="true" role="alertdialog" aria-live="polite">
+          <div className="breakOverModalFade" style={styles.breakOverModalCard}>
+            Break's over ☕ Time to get back to work!
+          </div>
+        </div>
+      )}
+
+      {showBackToWorkConfirm && (
+        <div
+          style={styles.backToWorkConfirmOverlay}
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby="back-to-work-confirm-title"
+        >
+          <div className="backToWorkConfirmFade" style={styles.backToWorkConfirmCard}>
+            <p id="back-to-work-confirm-title" style={styles.backToWorkConfirmMessage}>
+              Are you sure you want to go back to work?
+            </p>
+            <div style={styles.backToWorkConfirmActions}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBackToWorkConfirm(false);
+                  setMode("focus");
+                  setTimeLeft(TOTAL_TIME);
+                  setIsRunning(true);
+                  setSmallTaskIce(0);
+                  setMediumTaskIce(0);
+                  setSmallTaskIceSlots([]);
+                  setMediumTaskIceSlots([]);
+                  setAvailableIceSlots(Array.from({ length: ICE_SLOT_COUNT }, (_, i) => i));
+                }}
+                className={isStardew ? "appButton stardewButton stardewPrimary" : "appButton"}
+                style={{
+                  ...styles.primaryButton,
+                  ...(isStardew ? styles.stardewPrimaryButton : {}),
+                  backgroundColor: theme.primaryButtonBg,
+                  color: theme.primaryButtonColor,
+                }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBackToWorkConfirm(false)}
+                className={isStardew ? "appButton stardewButton stardewSecondary" : "appButton"}
+                style={{
+                  ...styles.secondaryButton,
+                  ...(isStardew ? styles.stardewSecondaryButton : {}),
+                  backgroundColor: theme.secondaryButtonBg,
+                  color: theme.secondaryButtonColor,
+                }}
+              >
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         className="ambiencePanelHover"
@@ -816,69 +1049,16 @@ export default function Home() {
 
       {mode === "complete" && (
         <>
-          <div key={celebrationKey} style={styles.screenFlashOverlay} className="celebrationFlash" aria-hidden />
-          <div key={celebrationKey} style={styles.starBurstContainer}>
-            {Array.from({ length: 28 }).map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  ...styles.starBurstRay,
-                  transform: `rotate(${i * (360 / 28)}deg)`,
-                }}
-              >
-                <div
-                  style={{
-                    ...styles.starSparkle,
-                    animation: "starBurst 1.2s ease-out 1 forwards",
-                    animationDelay: `${i * 0.02}s`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-
-          <div style={{ ...styles.modalOverlay, ...(isStardew ? styles.stardewModalOverlay : {}) }} className="modalOverlay">
-            <div style={{ ...styles.modalContent, ...(isStardew ? styles.stardewModalContent : {}) }} className="modalContent">
-              <h2 style={{ ...styles.modalTitle, ...(isStardew ? styles.stardewModalTitle : {}) }}>
-                🍋 You finished a focus session!
-              </h2>
-              <p style={{ ...styles.modalSubtitle, ...(isStardew ? styles.stardewModalSubtitle : {}) }}>
-                Ready for a 5-minute break?
-              </p>
-              <div style={styles.modalButtonRow}>
-                <button
-                  onClick={() => {
-                    setMode("break");
-                    setTimeLeft(300);
-                    setIsRunning(true);
-                  }}
-                  className={isStardew ? "appButton stardewButton stardewPrimary" : "appButton"}
-                  style={{
-                    ...styles.primaryButton,
-                    ...(isStardew ? styles.stardewPrimaryButton : {}),
-                    backgroundColor: theme.primaryButtonBg,
-                    color: theme.primaryButtonColor,
-                  }}
-                >
-                  Start Break
-                </button>
-                <button
-                  onClick={() => {
-                    setMode("focus");
-                    setTimeLeft(TOTAL_TIME);
-                    setIsRunning(false);
-                  }}
-                  className={isStardew ? "appButton stardewButton stardewSecondary" : "appButton"}
-                  style={{
-                    ...styles.secondaryButton,
-                    ...(isStardew ? styles.stardewSecondaryButton : {}),
-                    backgroundColor: theme.secondaryButtonBg,
-                    color: theme.secondaryButtonColor,
-                  }}
-                >
-                  Skip
-                </button>
-              </div>
+          <div
+            key={celebrationKey}
+            style={styles.screenFlashOverlay}
+            className="celebrationFlash"
+            aria-hidden
+          />
+          <div style={styles.modeTransitionCenter}>
+            <div style={styles.modeTransitionCard}>
+              <p style={styles.modeTransitionTitle}>Focus complete ☕</p>
+              <p style={styles.modeTransitionSubtitle}>Easing into break time…</p>
             </div>
           </div>
         </>
@@ -945,6 +1125,10 @@ export default function Home() {
             transform: translateY(-70px);
             opacity: 0.9;
           }
+          75% {
+            transform: translateY(4px);
+            opacity: 1;
+          }
           100% {
             transform: translateY(0);
             opacity: 1;
@@ -952,7 +1136,30 @@ export default function Home() {
         }
 
         .iceCubeDrop {
-          animation: iceDrop 0.55s ease-out forwards, iceBob 3s ease-in-out 0.55s infinite !important;
+          animation: iceDrop 0.6s cubic-bezier(0.34, 1.2, 0.64, 1) forwards, iceBob 3s ease-in-out 0.6s infinite !important;
+        }
+
+        .taskIceError {
+          animation: taskIceErrorFade 2.6s ease-in-out forwards;
+        }
+
+        @keyframes taskIceErrorFade {
+          0% { opacity: 0; transform: translateY(6px); }
+          12% { opacity: 1; transform: translateY(0); }
+          82% { opacity: 1; transform: translateY(0); }
+          100% { opacity: 0; transform: translateY(2px); }
+        }
+
+        .taskIceShake {
+          animation: taskIceShake 0.36s ease-in-out 1;
+        }
+
+        @keyframes taskIceShake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-1px); }
+          40% { transform: translateX(2px); }
+          60% { transform: translateX(-2px); }
+          80% { transform: translateX(1px); }
         }
 
         @keyframes sparkleTwinkle {
@@ -1167,8 +1374,28 @@ export default function Home() {
           100% { opacity: 0; }
         }
 
+        .breakOverModalFade {
+          animation: breakOverModalFade 2s ease-in-out forwards;
+        }
+        @keyframes breakOverModalFade {
+          0% { opacity: 0; transform: scale(0.96); }
+          15% { opacity: 1; transform: scale(1); }
+          85% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(0.98); }
+        }
+
+        .backToWorkConfirmFade {
+          animation: backToWorkConfirmFade 0.25s ease-out forwards;
+        }
+        @keyframes backToWorkConfirmFade {
+          from { opacity: 0; transform: scale(0.98); }
+          to { opacity: 1; transform: scale(1); }
+        }
+
         .timerHero {
-          transition: transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+          transition:
+            opacity 0.8s cubic-bezier(0.25, 0.1, 0.25, 1),
+            transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
         }
 
         .timerRunning {
@@ -1400,6 +1627,12 @@ export default function Home() {
         preload="auto"
         style={{ display: "none" }}
       />
+      <audio
+        ref={chimeAudioRef}
+        src="/sounds/chime.mp3"
+        preload="auto"
+        style={{ display: "none" }}
+      />
 
       <div style={styles.mascotContainer}>
         <div
@@ -1454,6 +1687,34 @@ const styles: { [key: string]: React.CSSProperties } = {
 
   stardewContainer: {
     fontFamily: "var(--font-quicksand), 'Quicksand', sans-serif",
+  },
+
+  scriptLogo: {
+    fontFamily:
+      "'Brush Script MT', 'Lucida Handwriting', 'Segoe Script', system-ui, cursive",
+    fontSize: "44px",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    margin: 0,
+    lineHeight: 1.1,
+    textShadow: "0 1px 1px rgba(255,255,255,0.7)",
+  },
+
+  headerLogoBlock: {
+    width: "100%",
+    textAlign: "center",
+  },
+
+  scriptSubLabel: {
+    display: "block",
+    marginTop: "12px",
+    fontSize: "18px",
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    fontFamily: "var(--font-quicksand), 'Quicksand', system-ui, sans-serif",
+    color: "#8A6A50",
+    textAlign: "center",
+    width: "100%",
   },
 
   title: {
@@ -1561,6 +1822,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   animalButtons: {
     display: "flex",
     gap: "12px",
+    marginTop: "24px",
     marginBottom: "28px",
     flexWrap: "wrap",
     justifyContent: "center",
@@ -1571,17 +1833,21 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
 
   selectedAnimalDisplay: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "16px",
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    borderRadius: "28px",
+    overflow: "hidden",
+    display: "block",
   },
 
   animalCartoon: {
-    width: "100px",
-    height: "auto",
-    maxHeight: "120px",
-    objectFit: "contain",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+    verticalAlign: "middle",
   },
 
   animalCard: {
@@ -1978,7 +2244,8 @@ const styles: { [key: string]: React.CSSProperties } = {
   motivationText: {
     fontSize: "15px",
     opacity: 0.85,
-    marginBottom: "20px",
+    marginTop: "24px",
+    marginBottom: "24px",
     textAlign: "center",
     maxWidth: "340px",
     lineHeight: 1.5,
@@ -2162,7 +2429,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: "column",
     alignItems: "center",
     gap: "8px",
-    marginBottom: "16px",
+    marginBottom: "24px",
   },
 
   taskIceLabel: {
@@ -2193,6 +2460,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: "rgba(255,255,255,0.15)",
     color: "#F5E6C8",
     boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+  },
+
+  taskIceError: {
+    marginTop: "10px",
+    padding: "10px 14px",
+    borderRadius: "14px",
+    background: "rgba(255, 250, 243, 0.9)",
+    color: "#6B4F3A",
+    boxShadow:
+      "0 8px 22px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.65)",
+    fontSize: "13px",
+    letterSpacing: "0.01em",
+    textAlign: "center",
+    maxWidth: "320px",
   },
 
   sparkle: {
@@ -2463,6 +2744,56 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "12px",
   },
 
+  logoWrapper: {
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    padding: "6px 12px",
+    borderRadius: 999,
+    backgroundColor: "#F5EBDD",
+  },
+
+  logoRow: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "6px",
+  },
+
+  logoCafe: {
+    fontFamily: "var(--font-quicksand), 'Quicksand', system-ui, sans-serif",
+    fontWeight: 500,
+    fontSize: "20px",
+    letterSpacing: "0.04em",
+  },
+
+  logoFocus: {
+    fontFamily: "var(--font-geist-sans), system-ui, sans-serif",
+    fontWeight: 700,
+    fontSize: "22px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  logoUnderline: {
+    marginTop: "3px",
+    height: "3px",
+    width: "70%",
+    borderRadius: 999,
+    backgroundImage:
+      "linear-gradient(90deg, #F8A5C2 0%, #E9D2BE 50%, #7FB77E 100%)",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+  },
+
+  logoModeLabel: {
+    marginTop: "6px",
+    fontSize: "11px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    fontFamily: "var(--font-quicksand), 'Quicksand', system-ui, sans-serif",
+    color: "#7A5A45",
+  },
+
   brandMark: {
     fontSize: "28px",
     opacity: 0.92,
@@ -2510,6 +2841,104 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: "rgba(255,255,255,0.5)",
     pointerEvents: "none",
     zIndex: 4,
+  },
+
+  modeTransitionCenter: {
+    position: "fixed",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+    zIndex: 6,
+  },
+
+  modeTransitionCard: {
+    padding: "18px 26px",
+    borderRadius: "20px",
+    background:
+      "radial-gradient(circle at top, rgba(255,252,245,0.98) 0%, rgba(245,231,213,0.96) 60%, rgba(235,214,190,0.94) 100%)",
+    boxShadow:
+      "0 12px 40px rgba(0,0,0,0.18), 0 0 0 1px rgba(140,90,60,0.1), inset 0 1px 0 rgba(255,255,255,0.9)",
+    textAlign: "center",
+  },
+
+  modeTransitionTitle: {
+    margin: 0,
+    marginBottom: "6px",
+    fontSize: "20px",
+    fontWeight: 600,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "#6B4F3A",
+  },
+
+  modeTransitionSubtitle: {
+    margin: 0,
+    fontSize: "14px",
+    color: "#8A6A50",
+  },
+
+  breakOverModalOverlay: {
+    position: "fixed",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+    zIndex: 20,
+  },
+
+  backToWorkConfirmOverlay: {
+    position: "fixed",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    zIndex: 22,
+    padding: "16px",
+  },
+
+  backToWorkConfirmCard: {
+    padding: "24px 28px",
+    borderRadius: "20px",
+    background:
+      "radial-gradient(circle at top, rgba(255,252,245,0.98) 0%, rgba(245,231,213,0.96) 60%, rgba(235,214,190,0.94) 100%)",
+    boxShadow:
+      "0 12px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(140,90,60,0.1), inset 0 1px 0 rgba(255,255,255,0.9)",
+    textAlign: "center",
+    maxWidth: "360px",
+  },
+
+  backToWorkConfirmMessage: {
+    margin: 0,
+    marginBottom: "20px",
+    fontSize: "16px",
+    lineHeight: 1.45,
+    color: "#6B4F3A",
+    fontWeight: 500,
+  },
+
+  backToWorkConfirmActions: {
+    display: "flex",
+    gap: "12px",
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
+
+  breakOverModalCard: {
+    padding: "20px 28px",
+    borderRadius: "20px",
+    background:
+      "radial-gradient(circle at top, rgba(255,252,245,0.98) 0%, rgba(245,231,213,0.96) 60%, rgba(235,214,190,0.94) 100%)",
+    boxShadow:
+      "0 12px 40px rgba(0,0,0,0.12), 0 0 0 1px rgba(140,90,60,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
+    textAlign: "center",
+    fontSize: "18px",
+    fontWeight: 600,
+    color: "#6B4F3A",
+    maxWidth: "90%",
   },
 
   starBurstContainer: {
